@@ -37,9 +37,41 @@
 	VirtualRectangle.prototype.zoom = function(originX, originY, delta) {
 		var scale = (this.width + delta) / this.startRect.width;
 		
-		var scale = (this.width + delta) / this.startRect.width;
+		// 03.20.2012
+        // 'min-scale' simple check:
+        // Note: we can just set scale to minScale here, if it is needed
+        if (scale <= this.options.minScale) {
+            return;
+        }
+
 		var width = scale * this.startRect.width;
 		var height = scale * this.startRect.height;
+
+        // 03.20.2012
+        // 'fit to window' check:
+        if (this.options.fitToWindow) {
+            var wWidth = $(window).width();
+            var wHeight = $(window).height();
+
+            // limit on width or height?
+            if (wWidth - width < wHeight - height) {
+                if (wWidth > width) {
+                    width = wWidth;
+
+                    scale = wWidth / this.startRect.width;
+                    height = scale * this.startRect.height;
+                }
+            } else {
+                if (wHeight > height) {
+                    height = wHeight;
+
+                    scale = wHeight / this.startRect.height;
+                    width = scale * this.startRect.width;
+                }
+            }
+        }
+
+
 		if( width /  this.startRect.width > 2) {
 			width = this.startRect.width * 2;
 			height = this.startRect.height * 2;
@@ -47,7 +79,6 @@
 
 		// we want to keep the transorm origin in th same place on screen
 		// so we need to do a transformation to compensate
-
 		var rightShift = (originX)/(this.startRect.width) * (width - this.width);
 		var upShift = (originY)/(this.startRect.height) * (height - this.height);
 		
@@ -57,6 +88,30 @@
 		this.top -= upShift;
 		this.left -= rightShift; 
 	};
+
+    // Note: we have a issue - the page(s) is not on the center of the screen,
+    // ... so we cannot just (width - this.width) / 2
+    //
+    //VirtualRectangle.prototype.fitToWidth = function(width) {
+    VirtualRectangle.prototype.fitToWidth = function(containerLeft, containerTop, width) {
+        if (typeof width == 'undefined') {
+            width = $(window).width();
+        }
+
+        var scale = width / this.startRect.width;
+        var height = scale * this.startRect.height;
+        //var rightShift = (width - this.width) / 2;
+		//var upShift = (height - this.height) / 2;
+		
+		this.width = width;
+		this.height = height;
+		this.scale = scale;
+		//this.top = -upShift;
+		//this.left = -rightShift;
+
+        this.top = -containerTop;
+		this.left = -containerLeft;
+    }
 
 	VirtualRectangle.prototype.applyScale = function(originX, originY, scale, startRect) {
 
@@ -106,7 +161,15 @@
 
 			
 			//var x = event.
-			vRect.zoom(event.offsetX, event.offsetY, dt*options.scaleRate);
+
+            // 03.20.2012:
+            // explain the issue:
+            if ($(event.target.parentNode).hasClass("even")) {
+                vRect.zoom(event.offsetX + $elem.width()/2, event.offsetY, dt*options.scaleRate);
+            } else {
+                vRect.zoom(event.offsetX, event.offsetY, dt*options.scaleRate);
+            }
+
 			//vRect.zoom(event.offsetX, event.offsetY, dt*options.scaleRate);
 			
 			if(timeout) {
@@ -120,6 +183,29 @@
 			
 		});
 	};
+
+    // Note: some copypaste here,
+    // just for testing
+    var bindFitToWidthHandler = function($elem, vRect, startRender, stopRender, options) {
+		var timeout = null;
+
+        $elem.bind("dblclick", function(e) {
+            event.preventDefault();
+			if( !options.shouldZoom() ) return;
+
+            //vRect.fitToWidth();
+            vRect.fitToWidth($elem.position().left - vRect.left, $elem.position().top - vRect.top);
+            
+			if (timeout) {
+				clearTimeout(timeout);
+			}
+
+			startRender();
+			timeout = setTimeout(function() {
+				stopRender();
+			}, 55);
+		});
+    }
 
 	var bindMouseDownHandler = function($elem, vRect, startRender, stopRender, options) {
 		var mouseTrack = false;
@@ -223,7 +309,8 @@
 			bindMouseWheelHandler($elem, virtualRect, startRender, stopRender, options);
 			bindGestureHandler($elem, virtualRect, startRender, stopRender, options);
 		
-			
+			bindFitToWidthHandler($elem, virtualRect, startRender, stopRender, options);
+
 		});
 	};
 
@@ -233,7 +320,8 @@
 		shouldPan: function() { return true; },
 		shouldZoom: function() { return true; },
 		minScale: 0.3,
-		maxScale: 2
+		maxScale: 2,
+        fitToWindow: function() { return true; } 
 	}
 
 })(jQuery);
