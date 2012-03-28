@@ -2,116 +2,426 @@
 
 (function($) {
 
-	/************ BEGIN VirtualRectangle Class Definition ***********/
-	var VirtualRectangle = function(startRect, options) {
-		this.options = options;
-		this.startRect = startRect;
-		this.top 	= startRect.top;
-		this.left 	= startRect.left;
-		this.width 	= startRect.width;
-		this.height = startRect.height;
-		this.scale 	= 1.0;
-	};
+    /************************************************/
+    /************ BEGIN Plugin Definition ***********/
 
-	VirtualRectangle.prototype.applyConstraints = function() {
-		
-	};
+    // Plugin methods. Basically, for the future
+    var methods = {
 
-	VirtualRectangle.prototype.getZoom = function() {
-		return this.height / this.startRect.height;
-	};
+        init : function(options) {
 
-	VirtualRectangle.prototype.getOffsetX = function() {
-		return (this.left - this.startRect.left) / this.scale;
-	};
+            // Lets use just one namespace; btw, a getter can be used
+            var defaults = {
+                frameRate: 50,
+                scaleRate: 50,
+                minScale: 0.3,
+                maxScale: 4,
+                shouldPan: function() { return true; },
+                shouldZoom: function() { return true; },
+                fitToWindow: function() { return true; },
+                fitToPage: function() { return true; } 
+            };
 
-	VirtualRectangle.prototype.getOffsetY = function() {
-		return (this.top - this.startRect.top) / this.scale;
-	};
+            return this.each(function() {
+                var $this = $(this);
 
-	VirtualRectangle.prototype.pan = function(deltaX, deltaY) {
-		this.top += deltaY;
-		this.left += deltaX;
-	}
-
-	VirtualRectangle.prototype.zoom = function(originX, originY, delta) {
-		var scale = (this.width + delta) / this.startRect.width;
-		
-		// 03.20.2012
-        // 'min-scale' simple check:
-        // Note: we can just set scale to minScale here, if it is needed
-        if (scale <= this.options.minScale) {
-            return;
-        }
-
-		var width = scale * this.startRect.width;
-		var height = scale * this.startRect.height;
-
-        // 03.20.2012
-        // 'fit to window' check:
-        if (this.options.fitToWindow) {
-            var wWidth = $(window).width();
-            var wHeight = $(window).height();
-
-            // limit on width or height?
-            if (wWidth - width < wHeight - height) {
-                if (wWidth > width) {
-                    width = wWidth;
-
-                    scale = wWidth / this.startRect.width;
-                    height = scale * this.startRect.height;
+                // for a whole set - options will be the same
+                if (typeof options != 'undefined') { 
+                    $.extend(defaults, options);
                 }
+
+                // individual for each:
+                var virtualRect = new VirtualRectangle($this, defaults);
+                    virtualRect.resetTransform();
+                
+                // Note: renderer can be used for some animation later..
+                //var renderer = new Renderer(defaults.frameRate);
+
+                // bind events
+                bindMouseWheelHandler($this, virtualRect, defaults);
+                bindFitToWidthHandler($this, virtualRect, defaults);
+                bindMouseDownHandler($this, virtualRect, defaults);
+
+                // in progress:
+                
+    			//bindGestureHandler($elem, virtualRect, startRender, stopRender, options);
+		    	
+            });
+        },
+        
+        destroy : function() {
+            //at least, unbind event handlers..
+
+            return this.each(function() {
+                var $this = $(this);
+
+                $this.unbind('.zoomAndScale');
+            });
+        } 
+
+    };
+
+
+    // Plugin handlers
+    var bindMouseWheelHandler = function($this, vRect, defaults) {
+
+        // zoom via mouse wheel events
+        $this.bind('mousewheel.zoomAndScale', function(event, dt) {
+            event.preventDefault();
+            if ( !defaults.shouldZoom() ) return;
+
+            vRect.zoom(event.pageX, event.pageY, dt*defaults.scaleRate);
+
+			//renderer.startRender(true); 
+            //renderer.startRender(callback, true);
+		});
+	};
+
+    var bindFitToWidthHandler = function($this, vRect, defaults) {
+
+        // fitToWidth via dblClick
+        $this.bind("dblclick.zoomAndScale", function(event) {
+            event.preventDefault();
+			if ( !defaults.shouldZoom() ) return;
+
+            if (event.which == 1) {
+                //left dblclick
+                vRect.fitToWidth(event.pageX, event.pageY);
             } else {
-                if (wHeight > height) {
-                    height = wHeight;
-
-                    scale = wHeight / this.startRect.height;
-                    width = scale * this.startRect.width;
-                }
+                //scroll dblclick
+                vRect.fitToHeight(event.pageX, event.pageY);
             }
-        }
+		});
+    };
 
-
-		if( width /  this.startRect.width > 2) {
-			width = this.startRect.width * 2;
-			height = this.startRect.height * 2;
+    var bindMouseDownHandler = function($this, vRect, defaults) {
+		var mouseTrack = false;
+		var mousePos = {
+			x: 0,
+			y: 0
 		}
 
-		// we want to keep the transorm origin in th same place on screen
-		// so we need to do a transformation to compensate
-		var rightShift = (originX)/(this.startRect.width) * (width - this.width);
-		var upShift = (originY)/(this.startRect.height) * (height - this.height);
+		// only pan:
+		$this.bind("mousedown.zoomAndScale", function(event) {
+            //unselectable
+            event.preventDefault();
+
+			mousePos.x = event.pageX;
+			mousePos.y = event.pageY;
+
+			mouseTrack = true;
+		}
+        ).bind("mouseup.zoomAndScale", function(event) {
+			mouseTrack = false;
+		}
+        ).bind("mousemove.zoomAndScale", function(event) {
+			if ( !defaults.shouldPan() ) return;
+
+			if (mouseTrack) {
+                vRect.pan(event.pageX - mousePos.x, event.pageY - mousePos.y);
+
+				mousePos.x = event.pageX;
+				mousePos.y = event.pageY;
+			}
+		});
 		
-		this.width = width;
-		this.height = height;
-		this.scale = scale;
-		this.top -= upShift;
-		this.left -= rightShift; 
 	};
 
-    // Note: we have a issue - the page(s) is not on the center of the screen,
-    // ... so we cannot just (width - this.width) / 2
-    //
-    //VirtualRectangle.prototype.fitToWidth = function(width) {
-    VirtualRectangle.prototype.fitToWidth = function(containerLeft, containerTop, width) {
-        if (typeof width == 'undefined') {
-            width = $(window).width();
+    // Plugin in the flesh
+    $.fn.zoomAndScale = function(method) {
+
+        if (methods[method]) {
+            return methods[method].apply(this, Array.prototype.slice.call(arguments, 1) );
+        } else if (typeof method === 'object' || ! method) {
+            return methods.init.apply(this, arguments);
+        } else {
+            $.error('Method ' +  method + ' does not exist in jQuery.zoomAndScale');
         }
 
-        var scale = width / this.startRect.width;
-        var height = scale * this.startRect.height;
-        //var rightShift = (width - this.width) / 2;
-		//var upShift = (height - this.height) / 2;
-		
-		this.width = width;
-		this.height = height;
-		this.scale = scale;
-		//this.top = -upShift;
-		//this.left = -rightShift;
+	};
 
-        this.top = -containerTop;
-		this.left = -containerLeft;
-    }
+    /************  END Plugin Definition  ***********/
+    /************************************************/
+
+
+    /************************************************/
+	/********* BEGIN VRectangle Definition **********/
+
+	var VirtualRectangle = function($this, options) {
+        var self = this;
+
+        /***** public *******/
+
+        // rectangle properties
+        this.top = $this.position().top;
+		this.left = $this.position().left;
+		this.width = $this.width();
+		this.height = $this.height();
+		this.scale = 1.0;
+
+
+        /***** private ******/
+
+        // browser specific information
+        var $browser = $.browser;
+
+        // ability to restore start condition
+        var startRect = {
+            top: this.top,
+            left: this.left,
+            width: this.width,
+            height: this.height,
+            scale: this.scale
+        };
+
+        // some flag to check condition
+        var fitToWindowFlag = false;
+        var fitToPageFlag = false;
+
+
+        // scale acoording to options
+        var getScale = function(width, height) {
+            if (width != 0) {
+                return Math.min(Math.max(width / startRect.width, options.minScale), options.maxScale);
+            } else if (height != 0) {
+                return Math.min(Math.max(height / startRect.height, options.minScale), options.maxScale);
+            } else {
+                return this.scale;
+            }
+        };
+
+        var zoomSizeModification = function() {
+            if (options.fitToWindow || options.fitToPage) {
+                var wWidth = $(window).width();
+                var wHeight = $(window).height();
+
+                /*
+                if (options.fitToPage) {
+                    wWidth = 2 * wWidth;
+                }
+                */
+
+                var widthScale = wWidth / startRect.width;
+                var heightScale = wHeight/ startRect.height;
+
+                // Portrait => limit by width
+                var portrait = (self.width/wWidth < self.height/wHeight);
+
+                var newScale = (portrait ? 
+                            Math.min(Math.max(self.scale, heightScale), widthScale) : 
+                            Math.min(Math.max(self.scale, widthScale), heightScale)
+                );
+
+                if (newScale != self.scale) {
+                    self.scale = newScale;
+                    self.width = self.scale * startRect.width;
+                    self.height = self.scale * startRect.height;
+                }
+            }
+        };
+
+        var zoomPositionModification = function() {
+            if (options.fitToWindow || options.fitToPage) {
+                var wWidth = $(window).width();
+                var wHeight = $(window).height();
+
+                /*
+                if (options.fitToPage) {
+                    wWidth = 2 * wWidth;
+                }
+                */
+
+                // Portrait => limit by width
+                var portrait = (self.width/wWidth < self.height/wHeight);
+
+                if (portrait) {
+                    self.left = Math.min(Math.max(self.left, 0), (wWidth - self.width));
+                    self.top = Math.min(Math.max(self.top, (wHeight - self.height)), 0);
+                } else {
+                    self.left = Math.min(Math.max(self.left, (wWidth - self.width)), 0);
+                    self.top = Math.min(Math.max(self.top, 0), (wHeight - self.height));
+                }
+            }
+        };
+
+
+        /***** getters ******/
+        /* /
+        this.getZoom = function() {
+		    return this.scale;
+    	};
+
+        this.getOffsetX = function() {
+		    return $this.position().left - this.left;
+	    };
+
+        this.getOffsetY = function() {
+		    return $this.position().top - this.top;
+    	};
+
+
+        /***** setters ******/
+        /* /
+        this.setPosition = function(x, y) {
+		    this.top = y;
+		    this.left = x;
+	    };
+
+
+        /***** methods ******/
+
+        this.resetTransform = function() {
+            this.applyTransform("0 0", true);
+        };
+
+        this.applyTransform = function(str, origin) {
+            if (typeof origin == 'undefined') {
+                origin = false;
+            }
+
+            if ($browser.webkit) {
+                //alert('webkit: ' + parseInt($browser.version, 10));
+                $this.css('-webkit-transform' + (origin ? '-origin' : ''), str);
+            }
+
+            // some debug for support in future
+            if ($browser.opera) {
+                //alert('opera: ' + parseInt($browser.version, 10));
+            }
+            if ($browser.safari) {
+                //alert('safari: ' + parseInt($browser.version, 10));
+            }
+            if ($browser.msie) {
+                //alert('msie: ' + parseInt($browser.version, 10));
+                $this.css('-ms-transform' + (origin ? '-origin' : ''), str);
+            }
+            if ($browser.mozilla) {
+                //alert('mozilla: ' + parseInt($browser.version, 10));
+                $this.css('-moz-transform' + (origin ? '-origin' : ''), str);
+            }
+        };
+
+        this.pan = function(deltaX, deltaY) {
+            this.left += deltaX;
+            this.top += deltaY;
+
+            zoomPositionModification();
+
+            $this.offset({ top: this.top, left: this.left });
+        }
+
+        this.zoom = function(pageX, pageY, delta) {
+            var scale = getScale(this.width + delta, this.height + delta);
+            this.zoomToScale(scale, pageX, pageY);
+	    };
+
+        this.fitToWidth = function(pageX, pageY) {
+            var wWidth = $(window).width();
+
+            var scale = wWidth / startRect.width;
+            this.zoomToScale(scale, pageX, pageY);
+        };
+
+        this.fitToHeight = function(pageX, pageY) {
+            var wHeight = $(window).height();
+
+            var scale = wHeight / startRect.height;
+            this.zoomToScale(scale, pageX, pageY);
+        };
+
+        this.zoomToScale = function(scale, pageX, pageY) {
+            if (scale != this.scale) {
+                this.scale = scale;
+
+                // save previous:
+                var curWidth = this.width;
+                var curHeight = this.height;
+                
+                //ok, calculate new size:
+                this.width = scale * startRect.width;
+                this.height = scale * startRect.height;
+
+                zoomSizeModification();
+
+                //ok, calculate new position:
+                var layerX = pageX - this.left;
+                var layerY = pageY - this.top;
+                
+                this.left = pageX - layerX * this.width / curWidth;
+                this.top = pageY - layerY * this.height / curHeight;
+
+                zoomPositionModification();
+
+
+                // apply changes:
+                var str =  'scale(' + this.scale + ') ';
+                    //str += 'translate('+-this.getOffsetX()+'px, '+-this.getOffsetY()+'px)'
+                
+                this.applyTransform(str);
+                $this.offset({ top: this.top, left: this.left });
+            }
+	    };
+
+	};
+
+    /********* END VRectangle Definition ************/
+    /************************************************/
+
+
+    /************************************************/
+    /************ BEGIN Renderer Definition *********/
+
+    /* TODO: perhaps, there should be a stack.. */
+
+    var Renderer = function(frameRate) {
+        // Ahtung, magick numbers here
+        var stopTimeOption = 55;
+
+        var timer = false;
+        var stopTimer = false;
+        var dontRenderFlag = true;
+        
+		var render = function() {
+			if (dontRenderFlag) return;
+
+			//$elem.css('-webkit-transform', getTransformString(virtualRect) );
+            //alert('render();');
+            //callback to vRect?
+
+            // a small cleanup here..
+            clearTimeout(timer);
+			timer = setTimeout(render, frameRate);
+		};
+
+        // public:
+        this.startRender = function(timeout) {
+			if (dontRenderFlag) {
+				dontRenderFlag = false;
+
+			    render();
+
+                // set the timeout to stop running
+                if (typeof timeout != 'undefined') {
+                    clearTimeout(stopTimer);
+				    stopTimer = setTimeout(this.stopRender(), stopTimeOption);
+			    }
+			}
+		};
+
+		this.stopRender = function() {
+			dontRenderFlag = true;
+
+            // ..and there
+            clearTimeout(timer);
+            clearTimeout(stopTimer);
+		};
+    };
+
+    /************ END Renderer Definition ***********/
+    /************************************************/
+
+
+/* /
 
 	VirtualRectangle.prototype.applyScale = function(originX, originY, scale, startRect) {
 
@@ -141,99 +451,6 @@
 		//alert("8");
 		this.top -= upShift;
 		this.left -= rightShift;
-	};
-
-	/************ END VirtualRectangle Class Definition ***********/
-
-	var getTransformString = function(vrect) {
-		var str =  'scale(' + vrect.getZoom() + ') '
-			str +=	'translate('+vrect.getOffsetX()+'px, '+vrect.getOffsetY()+'px)'
-			return str;
-	};
-	
-	var bindMouseWheelHandler = function($elem, vRect, startRender, stopRender, options) {
-		var timeout = null;
-		// zoom via mouse wheel events
-		$elem.mousewheel(function(event, dt) {
-
-			event.preventDefault();
-			if( !options.shouldZoom() ) return;
-
-			
-			//var x = event.
-
-            // 03.20.2012:
-            // explain the issue:
-            if ($(event.target.parentNode).hasClass("even")) {
-                vRect.zoom(event.offsetX + $elem.width()/2, event.offsetY, dt*options.scaleRate);
-            } else {
-                vRect.zoom(event.offsetX, event.offsetY, dt*options.scaleRate);
-            }
-
-			//vRect.zoom(event.offsetX, event.offsetY, dt*options.scaleRate);
-			
-			if(timeout) {
-				clearTimeout(timeout);
-			}
-			startRender();
-			// set the timeout to stop running
-			timeout = setTimeout(function() {
-				stopRender();
-			}, 55);
-			
-		});
-	};
-
-    // Note: some copypaste here,
-    // just for testing
-    var bindFitToWidthHandler = function($elem, vRect, startRender, stopRender, options) {
-		var timeout = null;
-
-        $elem.bind("dblclick", function(e) {
-            event.preventDefault();
-			if( !options.shouldZoom() ) return;
-
-            //vRect.fitToWidth();
-            vRect.fitToWidth($elem.position().left - vRect.left, $elem.position().top - vRect.top);
-            
-			if (timeout) {
-				clearTimeout(timeout);
-			}
-
-			startRender();
-			timeout = setTimeout(function() {
-				stopRender();
-			}, 55);
-		});
-    }
-
-	var bindMouseDownHandler = function($elem, vRect, startRender, stopRender, options) {
-		var mouseTrack = false;
-		var mousePos = {
-			x: 0,
-			y: 0
-		}
-		// pan and zoom via click and drag
-		$elem.bind("mousedown", function(e) {
-			mouseTrack = true;
-			mousePos.x = e.clientX;
-			mousePos.y = e.clientY;
-			startRender();
-		}).bind("mouseup", function(e) {
-			mouseTrack = false;
-			stopRender();
-		}).bind("mousemove", function(e) {
-			if( !options.shouldPan() ) return;
-			if(mouseTrack) {
-				var deltaX = e.clientX - mousePos.x;
-				var deltaY = e.clientY - mousePos.y;
-				vRect.pan(deltaX, deltaY);
-				vRect.applyConstraints();
-				mousePos.x = e.clientX;
-				mousePos.y = e.clientY;
-			}
-		});
-		
 	};
 
 	var bindGestureHandler = function($elem, vRect, startRender, stopRender, options) {
@@ -269,59 +486,7 @@
 		});
 	}
 
-	$.fn.zoomAndScale = function(options) {
+/* */
 
-		options = $.extend({}, $.fn.zoomAndScale.defaults, options);
-
-		return this.each(function() {
-			var $elem = $(this);
-			var dontRender = true;
-			
-			var startRect = {
-				top: 0,
-				left: 0,
-				width: $elem.width(),
-				height: $elem.height()
-			};
-			var virtualRect = new VirtualRectangle(startRect, options);
-
-			$elem.css('-webkit-transform-origin', "0 0");
-
-			// render loop for the element
-			var render = function() {
-				if(dontRender) return;
-				$elem.css('-webkit-transform', getTransformString(virtualRect) );
-				setTimeout(render, options.frameRate);
-			};
-
-			var startRender = function() {
-				if(dontRender) {
-					dontRender = false;
-					render();
-				}
-			};
-
-			var stopRender = function() {
-				dontRender = true;
-			}
-
-			bindMouseDownHandler($elem, virtualRect, startRender, stopRender, options);
-			bindMouseWheelHandler($elem, virtualRect, startRender, stopRender, options);
-			bindGestureHandler($elem, virtualRect, startRender, stopRender, options);
-		
-			bindFitToWidthHandler($elem, virtualRect, startRender, stopRender, options);
-
-		});
-	};
-
-	$.fn.zoomAndScale.defaults = {
-		frameRate: 50,
-		scaleRate: 50,
-		shouldPan: function() { return true; },
-		shouldZoom: function() { return true; },
-		minScale: 0.3,
-		maxScale: 2,
-        fitToWindow: function() { return true; } 
-	}
 
 })(jQuery);
